@@ -7,11 +7,16 @@ export class HelloScene extends Phaser.Scene {
   private enemyTwoEnemies: Phaser.GameObjects.Rectangle[] = [];
   private enemyTwoPredictionLines: Phaser.GameObjects.Graphics[] = [];
   private beam!: Phaser.GameObjects.Rectangle;
+  private ally!: Phaser.GameObjects.Rectangle;
+  private allyBeam!: Phaser.GameObjects.Rectangle;
+  private allyPredictionLine!: Phaser.GameObjects.Graphics;
   private predictionLine!: Phaser.GameObjects.Graphics;
   private beamLine!: Phaser.Geom.Line;
+  private allyBeamLine!: Phaser.Geom.Line;
   private beamCollisionLines: Phaser.Geom.Line[] = [];
   private jumpLabel!: Phaser.GameObjects.Text;
   private stageLabel!: Phaser.GameObjects.Text;
+  private healthLabel!: Phaser.GameObjects.Text;
   private spaceKey!: Phaser.Input.Keyboard.Key;
   private jumpCount = 0;
   private state: 'title' | 'playing' | 'gameover' | 'clear' = 'title';
@@ -23,6 +28,12 @@ export class HelloScene extends Phaser.Scene {
   private nextJumpAllowedAt = 0;
   private beamActive = false;
   private beamCycleId = 0;
+  private allyBeamActive = false;
+  private allyShotId = 0;
+  private allySpawnTimer?: Phaser.Time.TimerEvent;
+  private health = 3;
+  private readonly maxHealth = 3;
+  private invulnerableUntil = 0;
   private statusText?: Phaser.GameObjects.Text;
   private promptText?: Phaser.GameObjects.Text;
 
@@ -38,8 +49,12 @@ export class HelloScene extends Phaser.Scene {
     this.trampoline = this.add.rectangle(640, 638, 180, 18, 0xf3b562);
     this.enemyOne = this.add.rectangle(1030, 470, 52, 90, 0xf25f5c);
     this.beam = this.add.rectangle(0, 0, 260, 10, 0xffe66d);
+    this.ally = this.add.rectangle(110, 500, 48, 64, 0xff72b6);
+    this.allyBeam = this.add.rectangle(0, 0, 260, 14, 0xff72b6);
+    this.allyPredictionLine = this.add.graphics();
     this.predictionLine = this.add.graphics();
     this.beamLine = new Phaser.Geom.Line();
+    this.allyBeamLine = new Phaser.Geom.Line();
 
     this.physics.add.existing(this.player);
     this.physics.add.existing(this.trampoline, true);
@@ -65,6 +80,7 @@ export class HelloScene extends Phaser.Scene {
 
     this.jumpLabel = this.add.text(40, 28, '', this.textStyle(24, '#f7f4ea'));
     this.stageLabel = this.add.text(40, 64, '', this.textStyle(18, '#9fb3c8'));
+    this.healthLabel = this.add.text(40, 92, '', this.textStyle(18, '#ff9bc9'));
     const keyboard = this.input.keyboard!;
     this.spaceKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
     keyboard.on('keydown-ENTER', this.handleEnter, this);
@@ -129,6 +145,10 @@ export class HelloScene extends Phaser.Scene {
     if (this.beamActive && this.beamCollisionLines.some((line) => Phaser.Geom.Intersects.LineToRectangle(line, this.player.getBounds()))) {
       this.hitEnemy();
     }
+
+    if (this.allyBeamActive && Phaser.Geom.Intersects.LineToRectangle(this.allyBeamLine, this.player.getBounds())) {
+      this.healPlayer();
+    }
   }
 
   private showTitle(): void {
@@ -144,6 +164,9 @@ export class HelloScene extends Phaser.Scene {
     this.beamActive = false;
     this.jumpLabel.setVisible(false);
     this.stageLabel.setVisible(false);
+    this.healthLabel.setVisible(false);
+    this.stopAllySupport();
+    this.hideAlly();
     this.statusText?.destroy();
     this.promptText?.destroy();
     this.statusText = this.add.text(640, 300, 'TRAMPOLINE\nDODGER', {
@@ -161,6 +184,8 @@ export class HelloScene extends Phaser.Scene {
     this.beamCycleId += 1;
     this.jumpCount = 0;
     this.stage = 1;
+    this.health = this.maxHealth;
+    this.invulnerableUntil = 0;
     this.jumpHeldTime = 0;
     this.nextJumpAllowedAt = 0;
     this.statusText?.destroy();
@@ -175,8 +200,17 @@ export class HelloScene extends Phaser.Scene {
     this.beam.setVisible(false);
     this.predictionLine.clear();
     this.beamActive = false;
+    this.hideAlly();
+    this.stopAllySupport();
+    this.allySpawnTimer = this.time.addEvent({
+      delay: 5000,
+      callback: this.spawnAlly,
+      callbackScope: this,
+      loop: true,
+    });
     this.jumpLabel.setVisible(true);
     this.stageLabel.setVisible(true).setText('STAGE 1  /  赤い秀一');
+    this.healthLabel.setVisible(true);
     this.updateHud();
     this.fireBeam();
   }
@@ -189,6 +223,8 @@ export class HelloScene extends Phaser.Scene {
     this.hideEnemyTwoEnemies();
     this.predictionLine.clear();
     this.beamActive = false;
+    this.stopAllySupport();
+    this.hideAlly();
     this.statusText?.destroy();
     this.promptText?.destroy();
     this.statusText = this.add.text(640, 330, result === 'clear' ? 'CLEAR!' : 'GAME OVER', {
@@ -206,9 +242,75 @@ export class HelloScene extends Phaser.Scene {
   }
 
   private hitEnemy(): void {
-    if (this.state === 'playing') {
-      this.finish('gameover');
+    if (this.state === 'playing' && this.time.now >= this.invulnerableUntil) {
+      this.health -= 1;
+      this.invulnerableUntil = this.time.now + 900;
+      this.updateHud();
+      this.cameras.main.flash(120, 255, 80, 100);
+      if (this.health <= 0) {
+        this.finish('gameover');
+      }
     }
+  }
+
+  private spawnAlly(): void {
+    if (this.state !== 'playing' || this.ally.visible) {
+      return;
+    }
+
+    this.ally.setPosition(110, Phaser.Math.Between(170, 540)).setVisible(true);
+    this.allyPredictionLine.clear();
+    this.allyBeam.setVisible(false);
+    this.allyBeamActive = false;
+    const shotId = ++this.allyShotId;
+    const previewAngle = Phaser.Math.Angle.Between(this.ally.x, this.ally.y, this.player.x, this.player.y);
+    const previewEndX = this.ally.x + Math.cos(previewAngle) * 1400;
+    const previewEndY = this.ally.y + Math.sin(previewAngle) * 1400;
+    this.allyPredictionLine.lineStyle(6, 0xff72b6, 0.8).lineBetween(this.ally.x, this.ally.y, previewEndX, previewEndY);
+
+    this.time.delayedCall(500, () => {
+      if (shotId !== this.allyShotId || this.state !== 'playing' || !this.ally.visible) {
+        return;
+      }
+      const angle = Phaser.Math.Angle.Between(this.ally.x, this.ally.y, this.player.x, this.player.y);
+      const endX = this.ally.x + Math.cos(angle) * 1400;
+      const endY = this.ally.y + Math.sin(angle) * 1400;
+      this.allyBeamLine.setTo(this.ally.x, this.ally.y, endX, endY);
+      const midpointX = this.ally.x + Math.cos(angle) * 700;
+      const midpointY = this.ally.y + Math.sin(angle) * 700;
+      this.allyPredictionLine.clear();
+      this.allyBeam.setSize(1400, 24).setPosition(midpointX, midpointY).setRotation(angle).setVisible(true);
+      this.allyBeamActive = true;
+    });
+
+    this.time.delayedCall(1200, () => {
+      if (shotId === this.allyShotId) {
+        this.hideAlly();
+      }
+    });
+  }
+
+  private hideAlly(): void {
+    this.allyShotId += 1;
+    this.ally.setVisible(false);
+    this.allyBeam.setVisible(false);
+    this.allyPredictionLine.clear();
+    this.allyBeamActive = false;
+  }
+
+  private stopAllySupport(): void {
+    this.allySpawnTimer?.remove();
+    this.allySpawnTimer = undefined;
+  }
+
+  private healPlayer(): void {
+    if (this.state !== 'playing' || !this.allyBeamActive) {
+      return;
+    }
+    this.health = Math.min(this.maxHealth, this.health + 1);
+    this.updateHud();
+    this.cameras.main.flash(180, 255, 114, 190);
+    this.hideAlly();
   }
 
   private fireBeam(): void {
@@ -322,6 +424,7 @@ export class HelloScene extends Phaser.Scene {
 
   private updateHud(): void {
     this.jumpLabel.setText(`JUMPS  ${this.jumpCount.toString().padStart(2, '0')} / 50`);
+    this.healthLabel.setText(`HP  ${this.health} / ${this.maxHealth}`);
   }
 
   private textStyle(fontSize: number, color: string): Phaser.Types.GameObjects.Text.TextStyle {
