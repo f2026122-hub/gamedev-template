@@ -48,7 +48,7 @@ export class HelloScene extends Phaser.Scene {
     const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
     playerBody.setCollideWorldBounds(true);
     playerBody.setSize(34, 50, true);
-    for (let index = 0; index < 10; index += 1) {
+    for (let index = 0; index < 7; index += 1) {
       const enemy = this.add.rectangle(0, 0, 76, 32, 0xc77dff).setVisible(false);
       const predictionLine = this.add.graphics();
       this.physics.add.existing(enemy);
@@ -176,7 +176,7 @@ export class HelloScene extends Phaser.Scene {
     this.predictionLine.clear();
     this.beamActive = false;
     this.jumpLabel.setVisible(true);
-    this.stageLabel.setVisible(true).setText('STAGE 1  /  BEAM SENTINEL');
+    this.stageLabel.setVisible(true).setText('STAGE 1  /  赤い秀一');
     this.updateHud();
     this.fireBeam();
   }
@@ -244,7 +244,7 @@ export class HelloScene extends Phaser.Scene {
     this.predictionLine.lineBetween(this.enemyOne.x, this.enemyOne.y, endX, endY);
     this.beam.setSize(length, beamThickness).setPosition(midpointX, midpointY).setRotation(angle).setVisible(false);
     this.beamActive = false;
-    const predictionDuration = 500;
+    const predictionDuration = 400;
     const beamDuration = Phaser.Math.Between(100, 1000);
     this.time.delayedCall(predictionDuration, () => {
       if (cycleId !== this.beamCycleId || this.state !== 'playing' || this.stage !== 1) {
