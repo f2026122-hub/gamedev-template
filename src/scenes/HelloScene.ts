@@ -231,7 +231,7 @@ export class HelloScene extends Phaser.Scene {
     this.predictionLine.lineBetween(this.enemyOne.x, this.enemyOne.y, endX, endY);
     this.beam.setSize(length, 36).setPosition(midpointX, midpointY).setRotation(angle).setVisible(false);
     this.beamActive = false;
-    const predictionDuration = 0;
+    const predictionDuration = 1000;
     const beamDuration = Phaser.Math.Between(200, 500);
     this.time.delayedCall(predictionDuration, () => {
       if (cycleId !== this.beamCycleId || this.state !== 'playing' || this.stage !== 1) {
