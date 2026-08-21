@@ -9,6 +9,7 @@ export class HelloScene extends Phaser.Scene {
   private beam!: Phaser.GameObjects.Rectangle;
   private predictionLine!: Phaser.GameObjects.Graphics;
   private beamLine!: Phaser.Geom.Line;
+  private beamCollisionLines: Phaser.Geom.Line[] = [];
   private jumpLabel!: Phaser.GameObjects.Text;
   private stageLabel!: Phaser.GameObjects.Text;
   private spaceKey!: Phaser.Input.Keyboard.Key;
@@ -125,7 +126,7 @@ export class HelloScene extends Phaser.Scene {
       }
     }
 
-    if (this.beamActive && Phaser.Geom.Intersects.LineToRectangle(this.beamLine, this.player.getBounds())) {
+    if (this.beamActive && this.beamCollisionLines.some((line) => Phaser.Geom.Intersects.LineToRectangle(line, this.player.getBounds()))) {
       this.hitEnemy();
     }
   }
@@ -226,13 +227,25 @@ export class HelloScene extends Phaser.Scene {
       endX,
       endY,
     );
+    const beamThickness = 36;
+    const normalX = -Math.sin(angle);
+    const normalY = Math.cos(angle);
+    this.beamCollisionLines = [-1, -0.5, 0, 0.5, 1].map((offset) => {
+      const distance = offset * beamThickness / 2;
+      return new Phaser.Geom.Line(
+        this.enemyOne.x + normalX * distance,
+        this.enemyOne.y + normalY * distance,
+        endX + normalX * distance,
+        endY + normalY * distance,
+      );
+    });
     this.predictionLine.clear();
     this.predictionLine.lineStyle(8, 0xffe66d, 0.9);
     this.predictionLine.lineBetween(this.enemyOne.x, this.enemyOne.y, endX, endY);
-    this.beam.setSize(length, 36).setPosition(midpointX, midpointY).setRotation(angle).setVisible(false);
+    this.beam.setSize(length, beamThickness).setPosition(midpointX, midpointY).setRotation(angle).setVisible(false);
     this.beamActive = false;
-    const predictionDuration = 1000;
-    const beamDuration = Phaser.Math.Between(200, 500);
+    const predictionDuration = 500;
+    const beamDuration = Phaser.Math.Between(100, 1000);
     this.time.delayedCall(predictionDuration, () => {
       if (cycleId !== this.beamCycleId || this.state !== 'playing' || this.stage !== 1) {
         return;
