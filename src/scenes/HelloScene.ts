@@ -83,6 +83,9 @@ export class HelloScene extends Phaser.Scene {
       this.nextJumpAllowedAt = time + 1000;
       this.jumpCount += 1;
       this.updateHud();
+      if (this.jumpCount === 1) {
+        this.fireBeam();
+      }
       if (this.jumpCount === 25) {
         this.stage = 2;
         this.enemyOne.setVisible(false);
@@ -92,7 +95,7 @@ export class HelloScene extends Phaser.Scene {
         this.predictionLine.clear();
         this.beamActive = false;
         this.cameras.main.flash(500, 255, 255, 255);
-        this.stageLabel.setText('STAGE 2  /  PURPLE HUNTER');
+        this.stageLabel.setText('STAGE 2  /  ルマンド式部');
       }
       if (this.jumpCount >= 50) {
         this.finish('clear');
@@ -178,7 +181,6 @@ export class HelloScene extends Phaser.Scene {
     this.jumpLabel.setVisible(true);
     this.stageLabel.setVisible(true).setText('STAGE 1  /  赤い秀一');
     this.updateHud();
-    this.fireBeam();
   }
 
   private finish(result: 'gameover' | 'clear'): void {
