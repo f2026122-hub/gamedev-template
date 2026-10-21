@@ -11,9 +11,30 @@ export class HelloScene extends Phaser.Scene {
   private beamLine!: Phaser.Geom.Line;
   private beamCollisionLines: Phaser.Geom.Line[] = [];
   private jumpLabel!: Phaser.GameObjects.Text;
+  private jumpGauge!: Phaser.GameObjects.Graphics;
+  private coinIcon!: Phaser.GameObjects.Graphics;
+  private coinLabel!: Phaser.GameObjects.Text;
   private stageLabel!: Phaser.GameObjects.Text;
+  private itemHudLabel!: Phaser.GameObjects.Text;
+  private beamCountdownLabel!: Phaser.GameObjects.Text;
   private spaceKey!: Phaser.Input.Keyboard.Key;
   private jumpCount = 0;
+  private coins = 0;
+  private readonly coinStorageKey = 'trampoline-dodger-coins';
+  private readonly shieldStorageKey = 'trampoline-dodger-shields';
+  private readonly previewStorageKey = 'trampoline-dodger-red-preview';
+  private readonly beamCountdownStorageKey = 'trampoline-dodger-beam-countdown';
+  private shieldCharges = 0;
+  private redPreviewPurchased = false;
+  private beamCountdownPurchased = false;
+  private shieldProtectionUntil = 0;
+  private beamDamageUntil = 0;
+  private titleObjects: Phaser.GameObjects.GameObject[] = [];
+  private shieldButtonLabel!: Phaser.GameObjects.Text;
+  private previewButtonBackground!: Phaser.GameObjects.Rectangle;
+  private previewButtonLabel!: Phaser.GameObjects.Text;
+  private beamCountdownButtonLabel!: Phaser.GameObjects.Text;
+  private shopMessageLabel!: Phaser.GameObjects.Text;
   private state: 'title' | 'playing' | 'gameover' | 'clear' = 'title';
   private stage = 1;
   private enemyTwoAttackStarted = false;
@@ -33,6 +54,10 @@ export class HelloScene extends Phaser.Scene {
   create(): void {
     this.cameras.main.setBackgroundColor('#101827');
     this.drawBackdrop();
+    this.coins = this.loadCoins();
+    this.shieldCharges = this.loadShieldCharges();
+    this.redPreviewPurchased = localStorage.getItem(this.previewStorageKey) === 'true';
+    this.beamCountdownPurchased = localStorage.getItem(this.beamCountdownStorageKey) === 'true';
 
     this.player = this.add.rectangle(640, 602, 38, 54, 0x55d6be);
     this.trampoline = this.add.rectangle(640, 638, 180, 18, 0xf3b562);
@@ -64,7 +89,21 @@ export class HelloScene extends Phaser.Scene {
     this.physics.add.overlap(this.player, this.enemyOne, this.hitEnemy, undefined, this);
 
     this.jumpLabel = this.add.text(40, 28, '', this.textStyle(24, '#f7f4ea'));
-    this.stageLabel = this.add.text(40, 64, '', this.textStyle(18, '#9fb3c8'));
+    this.jumpGauge = this.add.graphics();
+    this.coinIcon = this.add.graphics();
+    this.coinIcon.fillStyle(0xffca3a, 1).fillCircle(1164, 42, 16);
+    this.coinIcon.lineStyle(3, 0xffed9a, 1).strokeCircle(1164, 42, 14);
+    this.coinIcon.lineStyle(2, 0xc88719, 1).strokeCircle(1164, 42, 9);
+    this.coinIcon.fillStyle(0xffed9a, 1).fillCircle(1159, 37, 3);
+    this.coinLabel = this.add.text(1240, 28, '', this.textStyle(24, '#f7f4ea')).setOrigin(1, 0);
+    this.stageLabel = this.add.text(40, 86, '', this.textStyle(18, '#9fb3c8'));
+    this.itemHudLabel = this.add.text(40, 114, '', this.textStyle(16, '#55d6be')).setVisible(false);
+    this.beamCountdownLabel = this.add.text(
+      this.enemyOne.x,
+      this.enemyOne.y - 64,
+      '',
+      this.textStyle(14, '#fff3d1'),
+    ).setOrigin(0.5).setVisible(false);
     const keyboard = this.input.keyboard!;
     this.spaceKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
     keyboard.on('keydown-ENTER', this.handleEnter, this);
@@ -76,12 +115,15 @@ export class HelloScene extends Phaser.Scene {
     if (this.state !== 'playing') {
       return;
     }
+    this.updateBeamCountdown();
 
     if (Phaser.Input.Keyboard.JustDown(this.spaceKey) && this.isGrounded() && time >= this.nextJumpAllowedAt) {
       (this.player.body as Phaser.Physics.Arcade.Body).setVelocityY(-240);
       this.jumpHeldTime = 0;
       this.nextJumpAllowedAt = time + 1000;
       this.jumpCount += 1;
+      this.coins = Math.min(this.coins + 1, 999);
+      localStorage.setItem(this.coinStorageKey, this.coins.toString());
       this.updateHud();
       if (this.jumpCount === 25) {
         this.stage = 2;
@@ -91,6 +133,8 @@ export class HelloScene extends Phaser.Scene {
         this.beamCycleId += 1;
         this.predictionLine.clear();
         this.beamActive = false;
+        this.beamDamageUntil = 0;
+        this.beamCountdownLabel.setVisible(false);
         this.cameras.main.flash(500, 255, 255, 255);
         this.stageLabel.setText('STAGE 2  /  PURPLE HUNTER');
       }
@@ -142,15 +186,18 @@ export class HelloScene extends Phaser.Scene {
     this.beam.setVisible(false);
     this.predictionLine.clear();
     this.beamActive = false;
+    this.beamDamageUntil = 0;
+    this.beamCountdownLabel.setVisible(false);
     this.jumpLabel.setVisible(false);
+    this.jumpGauge.setVisible(false);
+    this.coinIcon.setVisible(true);
+    this.coinLabel.setVisible(true).setText(this.coins.toString().padStart(3, '0'));
     this.stageLabel.setVisible(false);
+    this.itemHudLabel.setVisible(false);
     this.statusText?.destroy();
     this.promptText?.destroy();
-    this.statusText = this.add.text(640, 300, 'TRAMPOLINE\nDODGER', {
-      ...this.textStyle(64, '#f7f4ea'),
-      align: 'center',
-    }).setOrigin(0.5);
-    this.promptText = this.add.text(640, 440, 'ENTER でスタート', this.textStyle(22, '#f3b562')).setOrigin(0.5);
+    this.clearTitleObjects();
+    this.createTitleMenu();
   }
 
   private startGame(): void {
@@ -161,8 +208,10 @@ export class HelloScene extends Phaser.Scene {
     this.beamCycleId += 1;
     this.jumpCount = 0;
     this.stage = 1;
+    this.shieldProtectionUntil = 0;
     this.jumpHeldTime = 0;
     this.nextJumpAllowedAt = 0;
+    this.clearTitleObjects();
     this.statusText?.destroy();
     this.promptText?.destroy();
     this.player.setPosition(640, 602).setVisible(true);
@@ -176,7 +225,11 @@ export class HelloScene extends Phaser.Scene {
     this.predictionLine.clear();
     this.beamActive = false;
     this.jumpLabel.setVisible(true);
+    this.jumpGauge.setVisible(true);
+    this.coinIcon.setVisible(true);
+    this.coinLabel.setVisible(true);
     this.stageLabel.setVisible(true).setText('STAGE 1  /  赤い秀一');
+    this.itemHudLabel.setVisible(this.shieldCharges > 0);
     this.updateHud();
     this.fireBeam();
   }
@@ -186,6 +239,9 @@ export class HelloScene extends Phaser.Scene {
     this.beamCycleId += 1;
     (this.player.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
     this.beam.setVisible(false);
+    this.beamActive = false;
+    this.beamDamageUntil = 0;
+    this.beamCountdownLabel.setVisible(false);
     this.hideEnemyTwoEnemies();
     this.predictionLine.clear();
     this.beamActive = false;
@@ -206,13 +262,39 @@ export class HelloScene extends Phaser.Scene {
   }
 
   private hitEnemy(): void {
-    if (this.state === 'playing') {
-      this.finish('gameover');
+    if (this.state !== 'playing' || this.time.now < this.shieldProtectionUntil) {
+      return;
     }
+    if (this.shieldCharges > 0) {
+      this.shieldCharges -= 1;
+      this.shieldProtectionUntil = this.time.now + 700;
+      localStorage.setItem(this.shieldStorageKey, this.shieldCharges.toString());
+      if (this.stage === 1) {
+        this.beamCycleId += 1;
+        this.beam.setVisible(false);
+        this.predictionLine.clear();
+        this.beamActive = false;
+        const cycleId = this.beamCycleId;
+        this.time.delayedCall(700, () => {
+          if (cycleId === this.beamCycleId && this.state === 'playing' && this.stage === 1) {
+            this.fireBeam();
+          }
+        });
+      } else {
+        this.hideEnemyTwoEnemies();
+      }
+      this.cameras.main.flash(250, 85, 214, 190);
+      this.updateHud();
+      return;
+    }
+    this.finish('gameover');
   }
 
   private fireBeam(): void {
     const cycleId = ++this.beamCycleId;
+    this.beamActive = false;
+    this.beamDamageUntil = 0;
+    this.beamCountdownLabel.setVisible(false);
     const targetX = this.player.x;
     const targetY = this.player.y;
     const angle = Phaser.Math.Angle.Between(this.enemyOne.x, this.enemyOne.y, targetX, targetY);
@@ -240,28 +322,44 @@ export class HelloScene extends Phaser.Scene {
       );
     });
     this.predictionLine.clear();
-    this.predictionLine.lineStyle(8, 0xffe66d, 0.9);
-    this.predictionLine.lineBetween(this.enemyOne.x, this.enemyOne.y, endX, endY);
+    const drawBeamPrediction = (color: number): void => {
+      this.predictionLine.clear();
+      this.predictionLine.lineStyle(8, color, 0.9);
+      this.predictionLine.lineBetween(this.enemyOne.x, this.enemyOne.y, endX, endY);
+    };
+    const redLeadDuration = this.redPreviewPurchased ? 350 : 0;
+    drawBeamPrediction(this.redPreviewPurchased ? 0xf25f5c : 0xffe66d);
     this.beam.setSize(length, beamThickness).setPosition(midpointX, midpointY).setRotation(angle).setVisible(false);
     this.beamActive = false;
     const predictionDuration = 400;
+    const totalPredictionDuration = redLeadDuration + predictionDuration;
     const beamDuration = Phaser.Math.Between(100, 1000);
-    this.time.delayedCall(predictionDuration, () => {
+    if (this.redPreviewPurchased) {
+      this.time.delayedCall(redLeadDuration, () => {
+        if (cycleId === this.beamCycleId && this.state === 'playing' && this.stage === 1) {
+          drawBeamPrediction(0xffe66d);
+        }
+      });
+    }
+    this.time.delayedCall(totalPredictionDuration, () => {
       if (cycleId !== this.beamCycleId || this.state !== 'playing' || this.stage !== 1) {
         return;
       }
       this.predictionLine.clear();
       this.beamActive = true;
+      this.beamDamageUntil = this.time.now + beamDuration;
       this.beam.setVisible(true);
     });
-    this.time.delayedCall(predictionDuration + beamDuration, () => {
+    this.time.delayedCall(totalPredictionDuration + beamDuration, () => {
       if (cycleId !== this.beamCycleId) {
         return;
       }
       this.beam.setVisible(false);
       this.beamActive = false;
+      this.beamDamageUntil = 0;
+      this.beamCountdownLabel.setVisible(false);
     });
-    this.time.delayedCall(predictionDuration + beamDuration, () => {
+    this.time.delayedCall(totalPredictionDuration + beamDuration, () => {
       if (cycleId !== this.beamCycleId) {
         return;
       }
@@ -290,9 +388,21 @@ export class HelloScene extends Phaser.Scene {
       body.enable = false;
       body.setVelocity(0, 0);
       predictionLine.clear();
-      predictionLine.lineStyle(5, 0xc77dff, 0.9);
-      predictionLine.lineBetween(0, startY, 1280, startY);
-      this.time.delayedCall(500, () => {
+      const drawEnemyPrediction = (color: number): void => {
+        predictionLine.clear();
+        predictionLine.lineStyle(5, color, 0.9);
+        predictionLine.lineBetween(0, startY, 1280, startY);
+      };
+      const redLeadDuration = this.redPreviewPurchased ? 350 : 0;
+      drawEnemyPrediction(this.redPreviewPurchased ? 0xf25f5c : 0xc77dff);
+      if (this.redPreviewPurchased) {
+        this.time.delayedCall(redLeadDuration, () => {
+          if (waveId === this.enemyTwoWaveId && this.state === 'playing' && this.stage === 2) {
+            drawEnemyPrediction(0xc77dff);
+          }
+        });
+      }
+      this.time.delayedCall(redLeadDuration + 500, () => {
         if (waveId !== this.enemyTwoWaveId || this.state !== 'playing' || this.stage !== 2) {
           return;
         }
@@ -322,6 +432,185 @@ export class HelloScene extends Phaser.Scene {
 
   private updateHud(): void {
     this.jumpLabel.setText(`JUMPS  ${this.jumpCount.toString().padStart(2, '0')} / 50`);
+    this.coinLabel.setText(this.coins.toString().padStart(3, '0'));
+    this.itemHudLabel.setText(this.shieldCharges > 0 ? `シールド残り: ${this.shieldCharges}` : '');
+    this.itemHudLabel.setVisible(this.state === 'playing' && this.shieldCharges > 0);
+    const gaugeWidth = 300;
+    const gaugeProgress = Phaser.Math.Clamp(this.jumpCount / 50, 0, 1);
+    this.jumpGauge.clear();
+    this.jumpGauge.fillStyle(0x253b52, 1).fillRoundedRect(40, 56, gaugeWidth, 14, 7);
+    this.jumpGauge.fillStyle(0x55d6be, 1).fillRoundedRect(40, 56, gaugeWidth * gaugeProgress, 14, 7);
+    this.jumpGauge.fillStyle(0xf3b562, 1).fillRect(40 + gaugeWidth / 2 - 1, 53, 2, 20);
+  }
+
+  private updateBeamCountdown(): void {
+    if (!this.beamCountdownPurchased || this.stage !== 1 || !this.beamActive) {
+      this.beamCountdownLabel.setVisible(false);
+      return;
+    }
+    const remainingMs = this.beamDamageUntil - this.time.now;
+    if (remainingMs <= 0) {
+      this.beamCountdownLabel.setVisible(false);
+      return;
+    }
+    const remainingSeconds = (Math.ceil(remainingMs / 100) / 10).toFixed(1);
+    this.beamCountdownLabel
+      .setText(remainingSeconds)
+      .setPosition(this.enemyOne.x, this.enemyOne.y - 64)
+      .setVisible(true);
+  }
+
+  private loadCoins(): number {
+    const savedCoins = Number(localStorage.getItem(this.coinStorageKey));
+    return Number.isFinite(savedCoins) ? Phaser.Math.Clamp(Math.floor(savedCoins), 0, 999) : 0;
+  }
+
+  private loadShieldCharges(): number {
+    const savedCharges = Number(localStorage.getItem(this.shieldStorageKey));
+    return Number.isFinite(savedCharges) ? Math.max(0, Math.floor(savedCharges)) : 0;
+  }
+
+  private createTitleMenu(): void {
+    this.addTitleObject(this.add.text(640, 50, 'TRAMPOLINE DODGER', {
+      ...this.textStyle(48, '#f7f4ea'),
+      align: 'center',
+    }).setOrigin(0.5));
+    this.addTitleObject(this.add.text(640, 104, 'SHOP', this.textStyle(24, '#f3b562')).setOrigin(0.5));
+
+    this.addTitleObject(this.add.rectangle(640, 200, 800, 92, 0x17243a).setStrokeStyle(1, 0x3c587d));
+    this.addTitleObject(this.add.text(280, 178, 'シールド', this.textStyle(22, '#f7f4ea')));
+    this.addTitleObject(this.add.text(280, 210, '次の被弾を1回だけ無効化', this.textStyle(17, '#9fb3c8')));
+    const shieldButton = this.createShopButton(990, 200, 190, 56, () => this.buyShield());
+    this.shieldButtonLabel = shieldButton.label;
+
+    this.addTitleObject(this.add.rectangle(640, 315, 800, 92, 0x17243a).setStrokeStyle(1, 0x3c587d));
+    this.addTitleObject(this.add.text(280, 293, '赤い攻撃予告', this.textStyle(22, '#f7f4ea')));
+    this.addTitleObject(this.add.text(280, 325, '赤い先行予告のあと、通常の予告線が表示される', this.textStyle(17, '#9fb3c8')));
+    const previewButton = this.createShopButton(990, 315, 190, 56, () => this.buyRedPreview());
+    this.previewButtonBackground = previewButton.background;
+    this.previewButtonLabel = previewButton.label;
+
+    this.addTitleObject(this.add.rectangle(640, 430, 800, 92, 0x17243a).setStrokeStyle(1, 0x3c587d));
+    this.addTitleObject(this.add.text(280, 408, 'ビーム残り時間', this.textStyle(22, '#f7f4ea')));
+    this.addTitleObject(this.add.text(280, 440, '攻撃判定中、敵の上に残り秒数を表示', this.textStyle(17, '#9fb3c8')));
+    const countdownButton = this.createShopButton(990, 430, 190, 56, () => this.buyBeamCountdown());
+    this.beamCountdownButtonLabel = countdownButton.label;
+
+    this.shopMessageLabel = this.addTitleObject(this.add.text(640, 520, '', this.textStyle(17, '#f7f4ea')).setOrigin(0.5));
+    const startButton = this.createShopButton(640, 600, 280, 64, () => this.startGame());
+    startButton.background.setFillStyle(0x55d6be, 1);
+    startButton.background.on('pointerover', () => startButton.background.setFillStyle(0x8be8d6, 1));
+    startButton.background.on('pointerout', () => startButton.background.setFillStyle(0x55d6be, 1));
+    startButton.label.setText('ゲーム開始').setFontSize(24).setColor('#101827');
+
+    const resetButton = this.addTitleObject(
+      this.add.rectangle(1152, 676, 216, 44, 0x8e3e45).setInteractive({ useHandCursor: true }),
+    );
+    this.addTitleObject(this.add.text(1152, 676, 'データリセット', this.textStyle(17, '#fff4ea')).setOrigin(0.5));
+    resetButton.on('pointerover', () => resetButton.setFillStyle(0xb84f58, 1));
+    resetButton.on('pointerout', () => resetButton.setFillStyle(0x8e3e45, 1));
+    resetButton.on('pointerdown', () => this.resetSaveData());
+
+    this.refreshShopUi('クリックで購入 / ENTERでも開始できます');
+  }
+
+  private createShopButton(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    onClick: () => void,
+  ): { background: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text } {
+    const background = this.add.rectangle(x, y, width, height, 0xf3b562)
+      .setInteractive({ useHandCursor: true });
+    const label = this.add.text(x, y, '', this.textStyle(18, '#101827')).setOrigin(0.5);
+    background.on('pointerover', () => background.setFillStyle(0xffd88a, 1));
+    background.on('pointerout', () => {
+      background.setFillStyle(label.text === '購入済み' ? 0x365c55 : 0xf3b562, 1);
+    });
+    background.on('pointerdown', () => {
+      if (this.state === 'title') {
+        onClick();
+      }
+    });
+    this.addTitleObject(background);
+    this.addTitleObject(label);
+    return { background, label };
+  }
+
+  private buyShield(): void {
+    if (this.coins < 10) {
+      this.refreshShopUi('コインが足りません');
+      return;
+    }
+    this.coins -= 10;
+    this.shieldCharges += 1;
+    localStorage.setItem(this.coinStorageKey, this.coins.toString());
+    localStorage.setItem(this.shieldStorageKey, this.shieldCharges.toString());
+    this.refreshShopUi('シールドを購入しました');
+  }
+
+  private buyRedPreview(): void {
+    if (this.redPreviewPurchased) {
+      this.refreshShopUi('赤い攻撃予告は購入済みです');
+      return;
+    }
+    if (this.coins < 5) {
+      this.refreshShopUi('コインが足りません');
+      return;
+    }
+    this.coins -= 5;
+    this.redPreviewPurchased = true;
+    localStorage.setItem(this.coinStorageKey, this.coins.toString());
+    localStorage.setItem(this.previewStorageKey, 'true');
+    this.refreshShopUi('赤い攻撃予告を購入しました');
+  }
+
+  private buyBeamCountdown(): void {
+    if (this.beamCountdownPurchased) {
+      this.refreshShopUi('ビーム残り時間は購入済みです');
+      return;
+    }
+    if (this.coins < 10) {
+      this.refreshShopUi('コインが足りません');
+      return;
+    }
+    this.coins -= 10;
+    this.beamCountdownPurchased = true;
+    localStorage.setItem(this.coinStorageKey, this.coins.toString());
+    localStorage.setItem(this.beamCountdownStorageKey, 'true');
+    this.refreshShopUi('ビーム残り時間を購入しました');
+  }
+
+  private resetSaveData(): void {
+    this.coins = 0;
+    this.shieldCharges = 0;
+    this.redPreviewPurchased = false;
+    this.beamCountdownPurchased = false;
+    localStorage.removeItem(this.coinStorageKey);
+    localStorage.removeItem(this.shieldStorageKey);
+    localStorage.removeItem(this.previewStorageKey);
+    localStorage.removeItem(this.beamCountdownStorageKey);
+    this.refreshShopUi('所持コインと購入アイテムをリセットしました');
+  }
+
+  private refreshShopUi(message: string): void {
+    this.coinLabel.setText(this.coins.toString().padStart(3, '0'));
+    this.shieldButtonLabel.setText(`購入 10  /  所持 ${this.shieldCharges}`);
+    this.previewButtonLabel.setText(this.redPreviewPurchased ? '購入済み' : '購入 5');
+    this.previewButtonBackground.setFillStyle(this.redPreviewPurchased ? 0x365c55 : 0xf3b562, 1);
+    this.beamCountdownButtonLabel.setText(this.beamCountdownPurchased ? '購入済み' : '購入 10');
+    this.shopMessageLabel.setText(message);
+  }
+
+  private addTitleObject<T extends Phaser.GameObjects.GameObject>(gameObject: T): T {
+    this.titleObjects.push(gameObject);
+    return gameObject;
+  }
+
+  private clearTitleObjects(): void {
+    this.titleObjects.forEach((gameObject) => gameObject.destroy());
+    this.titleObjects = [];
   }
 
   private textStyle(fontSize: number, color: string): Phaser.Types.GameObjects.Text.TextStyle {
