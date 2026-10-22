@@ -18,6 +18,14 @@ export class HelloScene extends Phaser.Scene {
   private itemHudLabel!: Phaser.GameObjects.Text;
   private beamCountdownLabel!: Phaser.GameObjects.Text;
   private spaceKey!: Phaser.Input.Keyboard.Key;
+  private moveLeftKey!: Phaser.Input.Keyboard.Key;
+  private moveRightKey!: Phaser.Input.Keyboard.Key;
+  private leftArrowKey!: Phaser.Input.Keyboard.Key;
+  private rightArrowKey!: Phaser.Input.Keyboard.Key;
+  private jumpWKey!: Phaser.Input.Keyboard.Key;
+  private jumpUpKey!: Phaser.Input.Keyboard.Key;
+  private fastFallSKey!: Phaser.Input.Keyboard.Key;
+  private fastFallDownKey!: Phaser.Input.Keyboard.Key;
   private jumpCount = 0;
   private coins = 0;
   private readonly coinStorageKey = 'trampoline-dodger-coins';
@@ -106,6 +114,14 @@ export class HelloScene extends Phaser.Scene {
     ).setOrigin(0.5).setVisible(false);
     const keyboard = this.input.keyboard!;
     this.spaceKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+    this.moveLeftKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A);
+    this.moveRightKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D);
+    this.leftArrowKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.LEFT);
+    this.rightArrowKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.RIGHT);
+    this.jumpWKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W);
+    this.jumpUpKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.UP);
+    this.fastFallSKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S);
+    this.fastFallDownKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.DOWN);
     keyboard.on('keydown-ENTER', this.handleEnter, this);
 
     this.showTitle();
@@ -115,9 +131,17 @@ export class HelloScene extends Phaser.Scene {
     if (this.state !== 'playing') {
       return;
     }
+    if (this.player.getBounds().bottom >= this.scale.height) {
+      this.finish('gameover');
+      return;
+    }
     this.updateBeamCountdown();
 
-    if (Phaser.Input.Keyboard.JustDown(this.spaceKey) && this.isGrounded() && time >= this.nextJumpAllowedAt) {
+    const jumpHeld = this.spaceKey.isDown || this.jumpWKey.isDown || this.jumpUpKey.isDown;
+    const jumpPressed = Phaser.Input.Keyboard.JustDown(this.spaceKey)
+      || Phaser.Input.Keyboard.JustDown(this.jumpWKey)
+      || Phaser.Input.Keyboard.JustDown(this.jumpUpKey);
+    if (jumpPressed && this.isGrounded() && time >= this.nextJumpAllowedAt) {
       (this.player.body as Phaser.Physics.Arcade.Body).setVelocityY(-240);
       this.jumpHeldTime = 0;
       this.nextJumpAllowedAt = time + 1000;
@@ -145,14 +169,24 @@ export class HelloScene extends Phaser.Scene {
     }
 
     const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
-    if (this.spaceKey.isDown && playerBody.velocity.y < 0 && this.jumpHeldTime < 400 && this.player.y > 100) {
+    const movingLeft = this.moveLeftKey.isDown || this.leftArrowKey.isDown;
+    const movingRight = this.moveRightKey.isDown || this.rightArrowKey.isDown;
+    const horizontalSpeed = movingRight === movingLeft
+      ? 0
+      : movingLeft ? -260 : 260;
+    playerBody.setVelocityX(horizontalSpeed);
+    if (jumpHeld && playerBody.velocity.y < 0 && this.jumpHeldTime < 400 && this.player.y > 100) {
       this.jumpHeldTime += 1000 / 60;
       playerBody.setVelocityY(-550);
     }
+    playerBody.gravity.y = (this.fastFallSKey.isDown || this.fastFallDownKey.isDown)
+      && playerBody.velocity.y > 0
+      ? this.physics.world.gravity.y
+      : 0;
     if (this.player.y <= 100 && playerBody.velocity.y < 0) {
       playerBody.setVelocityY(0);
     }
-    if (this.spaceKey.isUp && playerBody.velocity.y < 0) {
+    if (!jumpHeld && playerBody.velocity.y < 0) {
       playerBody.setVelocityY(0);
     }
 
@@ -231,13 +265,20 @@ export class HelloScene extends Phaser.Scene {
     this.stageLabel.setVisible(true).setText('STAGE 1  /  赤い秀一');
     this.itemHudLabel.setVisible(this.shieldCharges > 0);
     this.updateHud();
-    this.fireBeam();
+    const cycleId = this.beamCycleId;
+    this.time.delayedCall(1000, () => {
+      if (cycleId === this.beamCycleId && this.state === 'playing' && this.stage === 1) {
+        this.fireBeam();
+      }
+    });
   }
 
   private finish(result: 'gameover' | 'clear'): void {
     this.state = result;
     this.beamCycleId += 1;
-    (this.player.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
+    const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
+    playerBody.setVelocity(0, 0);
+    playerBody.gravity.y = 0;
     this.beam.setVisible(false);
     this.beamActive = false;
     this.beamDamageUntil = 0;
